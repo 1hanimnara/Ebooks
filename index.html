@@ -1,545 +1,443 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>✦ Flipbook Viewer</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=DM+Mono:wght@300;400&display=swap');
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Flipbook Viewer</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=DM+Mono:wght@300&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#1a1410;--paper:#f5f0e8;--gold:#c9a84c;--gold-light:#e8d5a3;--cream:#fdf8f0;
+}
+html,body{width:100%;height:100%;background:var(--ink);font-family:'DM Mono',monospace;overflow:hidden}
+body::before{content:'';position:fixed;inset:0;
+  background:radial-gradient(ellipse 80% 60% at 20% 80%,rgba(201,168,76,.08),transparent 60%),
+             radial-gradient(ellipse 60% 80% at 80% 20%,rgba(201,168,76,.06),transparent 60%);
+  pointer-events:none}
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── 업로드 화면 ── */
+#upload-screen{
+  position:fixed;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2rem;z-index:100;
+  transition:opacity .5s,transform .5s;
+}
+#upload-screen.hidden{opacity:0;pointer-events:none;transform:scale(.97)}
+.upload-title{
+  font-family:'Cormorant Garamond',serif;font-size:clamp(2.2rem,5vw,3.8rem);
+  font-weight:300;color:var(--gold-light);letter-spacing:.12em;text-align:center;line-height:1.2
+}
+.upload-title em{font-style:italic;color:var(--gold)}
+.upload-sub{font-size:.68rem;color:rgba(245,240,232,.4);letter-spacing:.2em;text-transform:uppercase}
+.drop-zone{
+  width:min(440px,88vw);border:1px solid rgba(201,168,76,.3);border-radius:2px;
+  padding:2.8rem 2rem;text-align:center;cursor:pointer;
+  transition:all .3s;background:rgba(201,168,76,.03);position:relative;overflow:hidden
+}
+.drop-zone::before{content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,rgba(201,168,76,.07),transparent 50%);opacity:0;transition:opacity .3s}
+.drop-zone:hover::before,.drop-zone.over::before{opacity:1}
+.drop-zone:hover,.drop-zone.over{border-color:rgba(201,168,76,.7);box-shadow:0 0 40px rgba(201,168,76,.12)}
+.drop-icon{font-size:2.4rem;margin-bottom:1rem;display:block;opacity:.6}
+.drop-text{font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:var(--gold-light);margin-bottom:.4rem}
+.drop-hint{font-size:.62rem;color:rgba(245,240,232,.3);letter-spacing:.15em;text-transform:uppercase}
+#file-input{display:none}
+.badges{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap}
+.badge{font-size:.58rem;letter-spacing:.15em;text-transform:uppercase;color:rgba(201,168,76,.55);
+  border:1px solid rgba(201,168,76,.2);padding:.25rem .7rem;border-radius:1px}
 
-    :root {
-      --ink: #1a1410;
-      --paper: #f5f0e8;
-      --gold: #c9a84c;
-      --gold-light: #e8d5a3;
-      --shadow: rgba(26,20,16,0.35);
-      --cream: #fdf8f0;
-    }
+/* ── 로딩 ── */
+#loading{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  flex-direction:column;gap:1.5rem;z-index:200;background:rgba(26,20,16,.92)}
+#loading.show{display:flex}
+.loading-text{font-family:'Cormorant Garamond',serif;color:var(--gold-light);font-size:1.3rem;letter-spacing:.1em}
+.loading-bar{width:180px;height:1px;background:rgba(201,168,76,.2);position:relative;overflow:hidden}
+.loading-bar::after{content:'';position:absolute;left:-100%;top:0;width:100%;height:100%;
+  background:var(--gold);animation:sweep 1.1s ease-in-out infinite}
+@keyframes sweep{0%{left:-100%}100%{left:100%}}
 
-    html, body {
-      width: 100%; height: 100%;
-      background: var(--ink);
-      font-family: 'DM Mono', monospace;
-      overflow: hidden;
-    }
+/* ── 뷰어 ── */
+#viewer{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center}
+#viewer.show{display:flex}
 
-    /* ── 배경 노이즈 텍스처 ── */
-    body::before {
-      content: '';
-      position: fixed; inset: 0;
-      background-image:
-        radial-gradient(ellipse 80% 60% at 20% 80%, rgba(201,168,76,0.08) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 80% at 80% 20%, rgba(201,168,76,0.06) 0%, transparent 60%);
-      pointer-events: none; z-index: 0;
-    }
+.top-bar{position:fixed;top:0;left:0;right:0;height:50px;
+  display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;
+  background:linear-gradient(to bottom,rgba(26,20,16,.95),transparent);z-index:50}
+.logo{font-family:'Cormorant Garamond',serif;font-size:1rem;font-weight:300;font-style:italic;
+  color:var(--gold);letter-spacing:.1em}
+.page-info{font-size:.6rem;letter-spacing:.2em;text-transform:uppercase;color:rgba(245,240,232,.4)}
+.btn-reset{font-size:.6rem;letter-spacing:.15em;text-transform:uppercase;color:rgba(201,168,76,.5);
+  background:none;border:1px solid rgba(201,168,76,.2);padding:.28rem .75rem;cursor:pointer;
+  transition:all .2s;font-family:'DM Mono',monospace}
+.btn-reset:hover{color:var(--gold);border-color:rgba(201,168,76,.5)}
 
-    /* ── 업로드 화면 ── */
-    #upload-screen {
-      position: fixed; inset: 0;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      z-index: 100; gap: 2rem;
-      transition: opacity 0.6s ease, transform 0.6s ease;
-    }
-    #upload-screen.hidden {
-      opacity: 0; pointer-events: none; transform: scale(0.96);
-    }
+/* ── 책 ── */
+#book-wrap{position:relative;display:flex;align-items:center;justify-content:center;perspective:2000px}
 
-    .upload-title {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: clamp(2.4rem, 5vw, 4rem);
-      font-weight: 300;
-      color: var(--gold-light);
-      letter-spacing: 0.12em;
-      text-align: center;
-      line-height: 1.2;
-    }
-    .upload-title em {
-      font-style: italic;
-      color: var(--gold);
-    }
+.book{
+  position:relative;
+  transform-style:preserve-3d;
+  /* 크기는 JS에서 설정 */
+}
 
-    .upload-subtitle {
-      font-size: 0.72rem;
-      color: rgba(245,240,232,0.4);
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
-    }
+/* 페이지 기본 */
+.page{
+  position:absolute;top:0;
+  width:50%;height:100%;
+  transform-origin:right center;
+  transform-style:preserve-3d;
+  transition:transform .65s cubic-bezier(.645,.045,.355,1.000);
+  cursor:pointer;
+  user-select:none;
+}
+.page.left-page{
+  left:0;
+  transform-origin:right center;
+  z-index:2;
+}
+.page.right-page{
+  left:50%;
+  transform-origin:left center;
+  z-index:2;
+}
+.page-inner{
+  position:absolute;inset:0;
+  backface-visibility:hidden;
+  overflow:hidden;
+  background:var(--paper);
+}
+.page-inner img{
+  width:100%;height:100%;object-fit:contain;display:block;pointer-events:none
+}
 
-    .drop-zone {
-      width: min(480px, 90vw);
-      border: 1px solid rgba(201,168,76,0.3);
-      border-radius: 2px;
-      padding: 3rem 2rem;
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      background: rgba(201,168,76,0.03);
-      position: relative;
-      overflow: hidden;
-    }
-    .drop-zone::before {
-      content: '';
-      position: absolute; inset: 0;
-      background: linear-gradient(135deg, rgba(201,168,76,0.06) 0%, transparent 50%);
-      opacity: 0; transition: opacity 0.3s;
-    }
-    .drop-zone:hover::before, .drop-zone.dragover::before { opacity: 1; }
-    .drop-zone:hover, .drop-zone.dragover {
-      border-color: rgba(201,168,76,0.7);
-      box-shadow: 0 0 40px rgba(201,168,76,0.12);
-    }
+/* 책 그림자 */
+.book-shadow{
+  position:absolute;bottom:-20px;left:5%;right:5%;height:30px;
+  background:radial-gradient(ellipse,rgba(0,0,0,.5) 0%,transparent 70%);
+  filter:blur(8px);z-index:-1;
+}
 
-    .drop-icon {
-      font-size: 2.5rem;
-      margin-bottom: 1rem;
-      display: block;
-      opacity: 0.6;
-    }
-    .drop-text {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 1.2rem;
-      color: var(--gold-light);
-      margin-bottom: 0.5rem;
-    }
-    .drop-hint {
-      font-size: 0.65rem;
-      color: rgba(245,240,232,0.3);
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-    }
+/* 중앙 책등 선 */
+.spine{
+  position:absolute;top:0;left:50%;width:2px;height:100%;
+  background:linear-gradient(to bottom,rgba(201,168,76,.4),rgba(201,168,76,.15),rgba(201,168,76,.4));
+  transform:translateX(-50%);z-index:10;pointer-events:none;
+}
 
-    #file-input { display: none; }
+/* 네비 버튼 */
+.nav-btn{
+  position:absolute;top:50%;transform:translateY(-50%);
+  width:44px;height:44px;border-radius:50%;
+  border:1px solid rgba(201,168,76,.25);background:rgba(26,20,16,.8);
+  color:var(--gold-light);font-size:1.1rem;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .25s;backdrop-filter:blur(8px);z-index:30;
+}
+.nav-btn:hover{border-color:rgba(201,168,76,.7);background:rgba(201,168,76,.12);
+  box-shadow:0 0 20px rgba(201,168,76,.2);transform:translateY(-50%) scale(1.08)}
+#btn-prev{left:-60px}
+#btn-next{right:-60px}
 
-    .format-badges {
-      display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;
-    }
-    .badge {
-      font-size: 0.6rem;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      color: rgba(201,168,76,0.6);
-      border: 1px solid rgba(201,168,76,0.2);
-      padding: 0.3rem 0.75rem;
-      border-radius: 1px;
-    }
+/* 하단 */
+.bottom-bar{
+  position:fixed;bottom:0;left:0;right:0;height:56px;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  background:linear-gradient(to top,rgba(26,20,16,.95),transparent);z-index:50
+}
+.dot{width:5px;height:5px;border-radius:50%;background:rgba(201,168,76,.25);
+  cursor:pointer;transition:all .2s}
+.dot.active{background:var(--gold);box-shadow:0 0 8px rgba(201,168,76,.5)}
+.dot:hover{background:rgba(201,168,76,.6);transform:scale(1.4)}
 
-    /* ── 로딩 ── */
-    #loading {
-      position: fixed; inset: 0;
-      display: none; align-items: center; justify-content: center;
-      flex-direction: column; gap: 1.5rem;
-      z-index: 200; background: rgba(26,20,16,0.92);
-    }
-    #loading.show { display: flex; }
-    .loading-text {
-      font-family: 'Cormorant Garamond', serif;
-      color: var(--gold-light); font-size: 1.4rem; letter-spacing: 0.1em;
-    }
-    .loading-bar {
-      width: 200px; height: 1px;
-      background: rgba(201,168,76,0.2); position: relative; overflow: hidden;
-    }
-    .loading-bar::after {
-      content: '';
-      position: absolute; left: -100%; top: 0;
-      width: 100%; height: 100%;
-      background: var(--gold);
-      animation: loading-sweep 1.2s ease-in-out infinite;
-    }
-    @keyframes loading-sweep {
-      0% { left: -100%; }
-      100% { left: 100%; }
-    }
+/* 키 힌트 */
+.kb-hint{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);
+  font-size:.56rem;color:rgba(245,240,232,.2);letter-spacing:.15em;text-transform:uppercase;
+  pointer-events:none;transition:opacity 1.5s}
+.kb-hint.gone{opacity:0}
 
-    /* ── 뷰어 화면 ── */
-    #viewer-screen {
-      position: fixed; inset: 0;
-      display: none; flex-direction: column;
-      align-items: center; justify-content: center;
-      z-index: 10;
-    }
-    #viewer-screen.show { display: flex; }
-
-    /* 상단 바 */
-    .top-bar {
-      position: fixed; top: 0; left: 0; right: 0;
-      height: 52px;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0 2rem;
-      background: linear-gradient(to bottom, rgba(26,20,16,0.95), transparent);
-      z-index: 50;
-    }
-    .top-logo {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 1rem; font-weight: 300; font-style: italic;
-      color: var(--gold); letter-spacing: 0.1em;
-    }
-    .page-indicator {
-      font-size: 0.62rem; letter-spacing: 0.2em;
-      text-transform: uppercase; color: rgba(245,240,232,0.4);
-    }
-    .btn-reset {
-      font-size: 0.62rem; letter-spacing: 0.15em;
-      text-transform: uppercase; color: rgba(201,168,76,0.5);
-      background: none; border: 1px solid rgba(201,168,76,0.2);
-      padding: 0.3rem 0.8rem; cursor: pointer;
-      transition: all 0.2s;
-      font-family: 'DM Mono', monospace;
-    }
-    .btn-reset:hover { color: var(--gold); border-color: rgba(201,168,76,0.5); }
-
-    /* 책 컨테이너 */
-    #book-container {
-      position: relative;
-      display: flex; align-items: center; justify-content: center;
-    }
-
-    /* StPageFlip 스타일 오버라이드 */
-    .stf__parent {
-      box-shadow:
-        0 30px 80px rgba(0,0,0,0.6),
-        0 10px 30px rgba(0,0,0,0.4),
-        inset 0 0 0 1px rgba(201,168,76,0.1);
-    }
-
-    /* 네비게이션 버튼 */
-    .nav-btn {
-      position: absolute;
-      top: 50%; transform: translateY(-50%);
-      width: 48px; height: 48px;
-      border-radius: 50%;
-      border: 1px solid rgba(201,168,76,0.25);
-      background: rgba(26,20,16,0.8);
-      color: var(--gold-light);
-      font-size: 1.1rem;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: all 0.25s ease;
-      backdrop-filter: blur(8px);
-      z-index: 30;
-    }
-    .nav-btn:hover {
-      border-color: rgba(201,168,76,0.7);
-      background: rgba(201,168,76,0.12);
-      box-shadow: 0 0 20px rgba(201,168,76,0.2);
-      transform: translateY(-50%) scale(1.08);
-    }
-    #btn-prev { left: -68px; }
-    #btn-next { right: -68px; }
-
-    /* 하단 바 */
-    .bottom-bar {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      height: 60px;
-      display: flex; align-items: center; justify-content: center; gap: 0.5rem;
-      background: linear-gradient(to top, rgba(26,20,16,0.95), transparent);
-      z-index: 50;
-    }
-    .thumb-dot {
-      width: 5px; height: 5px; border-radius: 50%;
-      background: rgba(201,168,76,0.25);
-      cursor: pointer; transition: all 0.2s;
-    }
-    .thumb-dot.active {
-      background: var(--gold);
-      box-shadow: 0 0 8px rgba(201,168,76,0.5);
-    }
-    .thumb-dot:hover { background: rgba(201,168,76,0.6); transform: scale(1.4); }
-
-    /* 키보드 힌트 */
-    .keyboard-hint {
-      position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
-      font-size: 0.58rem; color: rgba(245,240,232,0.2);
-      letter-spacing: 0.15em; text-transform: uppercase;
-      pointer-events: none;
-      opacity: 1; transition: opacity 1s ease;
-    }
-    .keyboard-hint.fade { opacity: 0; }
-
-    /* 페이지 내부 (캔버스를 감싸는 래퍼) */
-    .page-wrapper {
-      width: 100%; height: 100%;
-      background: var(--paper);
-      display: flex; align-items: center; justify-content: center;
-      overflow: hidden;
-    }
-    .page-wrapper canvas, .page-wrapper img {
-      max-width: 100%; max-height: 100%;
-      object-fit: contain; display: block;
-    }
-
-    /* 반응형 */
-    @media (max-width: 768px) {
-      #btn-prev { left: 4px; }
-      #btn-next { right: 4px; }
-      .nav-btn { width: 36px; height: 36px; font-size: 0.9rem; opacity: 0.85; }
-    }
-  </style>
+/* 반응형 */
+@media(max-width:600px){
+  #btn-prev{left:2px}#btn-next{right:2px}
+  .nav-btn{width:34px;height:34px;font-size:.85rem;opacity:.8}
+}
+</style>
 </head>
 <body>
 
-<!-- 업로드 화면 -->
+<!-- 업로드 -->
 <div id="upload-screen">
-  <div>
-    <div class="upload-title"><em>Flip</em>book<br>Viewer</div>
-  </div>
-  <div class="upload-subtitle">이미지 또는 PDF를 넣어 e북으로 감상하세요</div>
-
+  <div class="upload-title"><em>Flip</em>book<br>Viewer</div>
+  <div class="upload-sub">이미지 또는 PDF를 넣어 e북으로 감상하세요</div>
   <div class="drop-zone" id="drop-zone">
-    <input type="file" id="file-input" multiple accept="image/*,.pdf" />
+    <input type="file" id="file-input" multiple accept="image/*,.pdf"/>
     <span class="drop-icon">📖</span>
     <div class="drop-text">파일을 드래그하거나 클릭하여 업로드</div>
-    <div class="drop-hint" style="margin-top:0.4rem">이미지 여러 장 또는 PDF 한 장</div>
+    <div class="drop-hint" style="margin-top:.35rem">이미지 여러 장 또는 PDF 한 장</div>
   </div>
-
-  <div class="format-badges">
-    <span class="badge">JPG</span>
-    <span class="badge">PNG</span>
-    <span class="badge">WEBP</span>
-    <span class="badge">GIF</span>
+  <div class="badges">
+    <span class="badge">JPG</span><span class="badge">PNG</span>
+    <span class="badge">WEBP</span><span class="badge">GIF</span>
     <span class="badge">PDF</span>
   </div>
 </div>
 
 <!-- 로딩 -->
-<div id="loading">
-  <div class="loading-text">페이지를 준비하는 중…</div>
-  <div class="loading-bar"></div>
-</div>
+<div id="loading"><div class="loading-text">페이지를 준비하는 중…</div><div class="loading-bar"></div></div>
 
 <!-- 뷰어 -->
-<div id="viewer-screen">
+<div id="viewer">
   <div class="top-bar">
-    <div class="top-logo">Flipbook</div>
-    <div class="page-indicator" id="page-indicator">— / —</div>
+    <div class="logo">Flipbook</div>
+    <div class="page-info" id="page-info">— / —</div>
     <button class="btn-reset" id="btn-reset">← 다시 열기</button>
   </div>
 
-  <div id="book-container">
+  <div id="book-wrap">
     <button class="nav-btn" id="btn-prev">‹</button>
-    <div id="flipbook"></div>
+    <div class="book" id="book">
+      <div class="spine"></div>
+      <div class="book-shadow"></div>
+    </div>
     <button class="nav-btn" id="btn-next">›</button>
   </div>
 
-  <div class="bottom-bar">
-    <div id="dots-container" style="display:flex;gap:6px;align-items:center;"></div>
-  </div>
-
-  <div class="keyboard-hint" id="kb-hint">← → 키보드로도 넘길 수 있어요</div>
+  <div class="bottom-bar"><div id="dots"></div></div>
+  <div class="kb-hint" id="kb-hint">← → 키보드로도 넘길 수 있어요</div>
 </div>
 
-<!-- StPageFlip CDN -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
 <script>
-  // PDF.js workerSrc
-  if (typeof pdfjsLib !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
-</script>
-<script>
-(async () => {
-  // ── StPageFlip 동적 로드 ──
-  await new Promise((res, rej) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/StPageFlip/2.0.7/flip.min.js';
-    s.onload = res; s.onerror = rej;
-    document.head.appendChild(s);
-  });
+// PDF.js 동적 로드
+function loadScript(src){ return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s)})}
 
-  const $ = id => document.getElementById(id);
-  const uploadScreen = $('upload-screen');
-  const viewerScreen = $('viewer-screen');
-  const loadingEl   = $('loading');
-  const flipbookEl  = $('flipbook');
-  const fileInput   = $('file-input');
-  const dropZone    = $('drop-zone');
-  const pageIndicator = $('page-indicator');
-  const dotsContainer = $('dots-container');
-  const kbHint = $('kb-hint');
+const $ = id => document.getElementById(id);
+let pages = [];      // 이미지 dataURL 배열
+let current = 0;     // 현재 왼쪽 페이지 인덱스 (짝수)
+let total = 0;
+let isFlipping = false;
 
-  let pageFlip = null;
-  let totalPages = 0;
+// ── 업로드 이벤트 ──
+$('drop-zone').addEventListener('click', () => $('file-input').click());
+$('drop-zone').addEventListener('dragover', e => { e.preventDefault(); $('drop-zone').classList.add('over'); });
+$('drop-zone').addEventListener('dragleave', () => $('drop-zone').classList.remove('over'));
+$('drop-zone').addEventListener('drop', e => { e.preventDefault(); $('drop-zone').classList.remove('over'); handleFiles(e.dataTransfer.files); });
+$('file-input').addEventListener('change', e => handleFiles(e.target.files));
+$('btn-reset').addEventListener('click', reset);
+$('btn-prev').addEventListener('click', () => flip('prev'));
+$('btn-next').addEventListener('click', () => flip('next'));
 
-  // ── 드래그앤드롭 ──
-  dropZone.addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-  dropZone.addEventListener('drop', e => {
-    e.preventDefault(); dropZone.classList.remove('dragover');
-    handleFiles(e.dataTransfer.files);
-  });
-  fileInput.addEventListener('change', e => handleFiles(e.target.files));
-  $('btn-reset').addEventListener('click', reset);
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') flip('prev');
+  if (e.key === 'ArrowRight') flip('next');
+});
 
-  function reset() {
-    if (pageFlip) { try { pageFlip.destroy(); } catch(e){} pageFlip = null; }
-    flipbookEl.innerHTML = '';
-    dotsContainer.innerHTML = '';
-    viewerScreen.style.display = 'none';
-    viewerScreen.classList.remove('show');
-    uploadScreen.classList.remove('hidden');
-    fileInput.value = '';
+function reset(){
+  pages=[]; current=0; total=0; isFlipping=false;
+  $('book').innerHTML='<div class="spine"></div><div class="book-shadow"></div>';
+  $('dots').innerHTML='';
+  $('viewer').classList.remove('show'); $('viewer').style.display='none';
+  $('upload-screen').classList.remove('hidden');
+  $('file-input').value='';
+}
+
+async function handleFiles(files){
+  if(!files||!files.length) return;
+  $('loading').classList.add('show');
+  pages=[];
+  const imgs=[...files].filter(f=>f.type.startsWith('image/')).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+  const pdfs=[...files].filter(f=>f.type==='application/pdf');
+
+  for(const f of imgs) pages.push(await toDataURL(f));
+  for(const f of pdfs){
+    const p = await pdfPages(f);
+    pages.push(...p);
   }
 
-  async function handleFiles(files) {
-    if (!files || files.length === 0) return;
-    showLoading(true);
+  if(!pages.length){ $('loading').classList.remove('show'); alert('지원하지 않는 파일입니다.'); return; }
+  buildBook();
+}
 
-    const pages = []; // { dataUrl }
+function toDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.onerror=rej; r.readAsDataURL(file); }); }
 
-    // 이미지와 PDF 분리
-    const imageFiles = [];
-    const pdfFiles = [];
-    for (const f of files) {
-      if (f.type === 'application/pdf') pdfFiles.push(f);
-      else if (f.type.startsWith('image/')) imageFiles.push(f);
+async function pdfPages(file){
+  // PDF.js CDN 로드
+  if(typeof pdfjsLib==='undefined'){
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+  const ab = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data:ab}).promise;
+  const out=[];
+  for(let i=1;i<=pdf.numPages;i++){
+    const pg=await pdf.getPage(i);
+    const vp=pg.getViewport({scale:1.8});
+    const cv=document.createElement('canvas');
+    cv.width=vp.width; cv.height=vp.height;
+    await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+    out.push(cv.toDataURL('image/jpeg',.92));
+  }
+  return out;
+}
+
+// ── 책 빌드 ──
+function buildBook(){
+  total = pages.length;
+  current = 0;
+
+  // 크기 계산
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const maxBookW = Math.min(vw * 0.86, 860);
+  const maxBookH = vh * 0.76;
+  let pgH = Math.min(maxBookH, maxBookW / 2 * 1.41);
+  let pgW = pgH / 1.41;
+  const bookW = pgW * 2, bookH = pgH;
+
+  const book = $('book');
+  book.style.width = bookW + 'px';
+  book.style.height = bookH + 'px';
+
+  // 페이지 div 생성 (앞면만; 넘기면 교체)
+  renderSpread();
+
+  // 도트
+  const dotsEl = $('dots');
+  dotsEl.innerHTML='';
+  dotsEl.style.cssText='display:flex;gap:6px;align-items:center';
+  const dotCount = Math.min(total, 22);
+  for(let i=0;i<dotCount;i++){
+    const d=document.createElement('div');
+    d.className='dot'+(i===0?' active':'');
+    d.dataset.idx=i;
+    d.addEventListener('click',()=>{ jumpTo(parseInt(d.dataset.idx)*2); });
+    dotsEl.appendChild(d);
+  }
+
+  // 뷰어 표시
+  $('upload-screen').classList.add('hidden');
+  $('viewer').style.display='flex';
+  $('viewer').classList.add('show');
+  $('loading').classList.remove('show');
+  updateInfo();
+
+  setTimeout(()=>{ $('kb-hint').classList.add('gone'); }, 4500);
+}
+
+function renderSpread(){
+  const book = $('book');
+  // 기존 페이지 제거
+  book.querySelectorAll('.page').forEach(p=>p.remove());
+
+  const pgW = book.offsetWidth / 2;
+  const pgH = book.offsetHeight;
+
+  // 왼쪽 페이지
+  if(current > 0){
+    const lp = makePage(pages[current], 'left', pgW, pgH);
+    book.appendChild(lp);
+  } else {
+    // 표지 왼쪽 빈면
+    const lp = makeBlankPage('left', pgW, pgH);
+    book.appendChild(lp);
+  }
+
+  // 오른쪽 페이지
+  if(current + 1 < total){
+    const rp = makePage(pages[current+1] || null, 'right', pgW, pgH);
+    book.appendChild(rp);
+  } else {
+    const rp = makeBlankPage('right', pgW, pgH);
+    book.appendChild(rp);
+  }
+}
+
+function makePage(src, side, w, h){
+  const div = document.createElement('div');
+  div.className = 'page '+(side==='left'?'left-page':'right-page');
+  div.style.cssText = `width:${w}px;height:${h}px`;
+  const inner = document.createElement('div');
+  inner.className = 'page-inner';
+  if(src){
+    const img = document.createElement('img');
+    img.src = src; img.draggable=false;
+    inner.appendChild(img);
+  } else {
+    inner.style.background = 'var(--paper)';
+  }
+  div.appendChild(inner);
+  return div;
+}
+
+function makeBlankPage(side, w, h){
+  const div = document.createElement('div');
+  div.className = 'page '+(side==='left'?'left-page':'right-page');
+  div.style.cssText = `width:${w}px;height:${h}px`;
+  const inner = document.createElement('div');
+  inner.className = 'page-inner';
+  inner.style.background='var(--cream)';
+  div.appendChild(inner);
+  return div;
+}
+
+// ── 페이지 넘기기 ──
+function flip(dir){
+  if(isFlipping) return;
+  if(dir==='next' && current+2 >= total) return;
+  if(dir==='prev' && current <= 0) return;
+
+  isFlipping=true;
+  const book=$('book');
+  const pgW=book.offsetWidth/2, pgH=book.offsetHeight;
+
+  if(dir==='next'){
+    // 오른쪽 페이지가 왼쪽으로 넘어가는 애니메이션
+    const flipPage = book.querySelector('.right-page');
+    if(flipPage){
+      flipPage.style.transformOrigin='left center';
+      flipPage.style.zIndex='20';
+      flipPage.style.transition='transform .65s cubic-bezier(.645,.045,.355,1)';
+      flipPage.style.transform='rotateY(-180deg)';
     }
-
-    // 이미지 정렬 (파일명 순)
-    imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-
-    // 이미지 → dataURL
-    for (const f of imageFiles) {
-      const url = await fileToDataURL(f);
-      pages.push(url);
+    setTimeout(()=>{
+      current += 2;
+      renderSpread();
+      updateInfo();
+      isFlipping=false;
+    }, 650);
+  } else {
+    // 왼쪽 페이지가 오른쪽으로 넘어가는 애니메이션
+    const flipPage = book.querySelector('.left-page');
+    if(flipPage){
+      flipPage.style.transformOrigin='right center';
+      flipPage.style.zIndex='20';
+      flipPage.style.transition='transform .65s cubic-bezier(.645,.045,.355,1)';
+      flipPage.style.transform='rotateY(180deg)';
     }
-
-    // PDF → 각 페이지 캔버스 → dataURL
-    for (const f of pdfFiles) {
-      const pdfPages = await pdfToDataURLs(f);
-      pages.push(...pdfPages);
-    }
-
-    if (pages.length === 0) { showLoading(false); alert('지원하지 않는 파일입니다.'); return; }
-
-    buildFlipbook(pages);
+    setTimeout(()=>{
+      current -= 2;
+      if(current < 0) current=0;
+      renderSpread();
+      updateInfo();
+      isFlipping=false;
+    }, 650);
   }
+}
 
-  function fileToDataURL(file) {
-    return new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = e => res(e.target.result);
-      r.onerror = rej;
-      r.readAsDataURL(file);
-    });
-  }
+function jumpTo(idx){
+  if(isFlipping) return;
+  current = Math.max(0, Math.min(idx, total-1));
+  if(current%2!==0) current--;
+  renderSpread();
+  updateInfo();
+}
 
-  async function pdfToDataURLs(file) {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const urls = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 1.8 });
-      const canvas = document.createElement('canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-      urls.push(canvas.toDataURL('image/jpeg', 0.92));
-    }
-    return urls;
-  }
+function updateInfo(){
+  const left = current+1, right = Math.min(current+2, total);
+  $('page-info').textContent = total<=2 ? `${right} / ${total}` : `${left}–${right} / ${total}`;
+  const dots=$('dots').querySelectorAll('.dot');
+  const dotIdx = Math.floor(current/2);
+  dots.forEach((d,i)=>d.classList.toggle('active', i===Math.min(dotIdx, dots.length-1)));
+}
 
-  function buildFlipbook(pages) {
-    flipbookEl.innerHTML = '';
-    dotsContainer.innerHTML = '';
-    totalPages = pages.length;
-
-    // 화면 크기에 맞는 책 크기 계산
-    const maxW = Math.min(window.innerWidth * 0.88, 900);
-    const maxH = window.innerHeight * 0.78;
-    let bookW = Math.floor(maxW / 2); // 펼쳤을 때 한 면 너비
-    let bookH = Math.min(Math.floor(bookW * 1.41), maxH); // A4 비율
-    bookW = Math.floor(bookH / 1.41);
-
-    // 페이지 DOM 생성
-    pages.forEach((src, idx) => {
-      const div = document.createElement('div');
-      div.className = 'page-wrapper';
-      const img = document.createElement('img');
-      img.src = src;
-      img.alt = `Page ${idx + 1}`;
-      img.draggable = false;
-      div.appendChild(img);
-      flipbookEl.appendChild(div);
-    });
-
-    // 점 네비게이션
-    const dotCount = Math.min(totalPages, 24);
-    for (let i = 0; i < dotCount; i++) {
-      const dot = document.createElement('div');
-      dot.className = 'thumb-dot' + (i === 0 ? ' active' : '');
-      dot.addEventListener('click', () => {
-        if (pageFlip) pageFlip.flip(i);
-      });
-      dotsContainer.appendChild(dot);
-    }
-
-    // 뷰어 전환
-    uploadScreen.classList.add('hidden');
-    viewerScreen.style.display = 'flex';
-    viewerScreen.classList.add('show');
-
-    setTimeout(() => {
-      // StPageFlip 초기화
-      pageFlip = new St.PageFlip(flipbookEl, {
-        width: bookW,
-        height: bookH,
-        size: 'fixed',
-        minWidth: 100,
-        maxWidth: 1000,
-        minHeight: 100,
-        maxHeight: 1400,
-        drawShadow: true,
-        flippingTime: 700,
-        usePortrait: true,
-        startZIndex: 0,
-        autoSize: false,
-        maxShadowOpacity: 0.5,
-        showCover: false,
-        mobileScrollSupport: false,
-        swipeDistance: 30,
-        clickEventForward: true,
-        useMouseEvents: true,
-      });
-
-      pageFlip.loadFromHTML(flipbookEl.querySelectorAll('.page-wrapper'));
-
-      pageFlip.on('flip', e => updateUI(e.data));
-      pageFlip.on('changeOrientation', () => {});
-
-      updateUI(0);
-      showLoading(false);
-
-      // 키보드 힌트 페이드아웃
-      setTimeout(() => kbHint.classList.add('fade'), 4000);
-    }, 100);
-  }
-
-  function updateUI(pageIdx) {
-    pageIndicator.textContent = `${pageIdx + 1} / ${totalPages}`;
-    const dots = dotsContainer.querySelectorAll('.thumb-dot');
-    dots.forEach((d, i) => d.classList.toggle('active', i === Math.min(pageIdx, dots.length - 1)));
-  }
-
-  $('btn-prev').addEventListener('click', () => { if (pageFlip) pageFlip.flipPrev(); });
-  $('btn-next').addEventListener('click', () => { if (pageFlip) pageFlip.flipNext(); });
-
-  document.addEventListener('keydown', e => {
-    if (!pageFlip) return;
-    if (e.key === 'ArrowLeft')  pageFlip.flipPrev();
-    if (e.key === 'ArrowRight') pageFlip.flipNext();
-  });
-
-  function showLoading(show) {
-    loadingEl.classList.toggle('show', show);
-  }
-})();
+window.addEventListener('resize', ()=>{ if(pages.length) buildBook(); });
 </script>
 </body>
 </html>
