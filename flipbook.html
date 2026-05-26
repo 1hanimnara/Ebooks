@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>✦ Flipbook Viewer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=DM+Mono:wght@300;400&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --ink: #1a1410;
+      --paper: #f5f0e8;
+      --gold: #c9a84c;
+      --gold-light: #e8d5a3;
+      --shadow: rgba(26,20,16,0.35);
+      --cream: #fdf8f0;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--ink);
+      font-family: 'DM Mono', monospace;
+      overflow: hidden;
+    }
+
+    /* ── 배경 노이즈 텍스처 ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        radial-gradient(ellipse 80% 60% at 20% 80%, rgba(201,168,76,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 80% at 80% 20%, rgba(201,168,76,0.06) 0%, transparent 60%);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── 업로드 화면 ── */
+    #upload-screen {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 100; gap: 2rem;
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    #upload-screen.hidden {
+      opacity: 0; pointer-events: none; transform: scale(0.96);
+    }
+
+    .upload-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(2.4rem, 5vw, 4rem);
+      font-weight: 300;
+      color: var(--gold-light);
+      letter-spacing: 0.12em;
+      text-align: center;
+      line-height: 1.2;
+    }
+    .upload-title em {
+      font-style: italic;
+      color: var(--gold);
+    }
+
+    .upload-subtitle {
+      font-size: 0.72rem;
+      color: rgba(245,240,232,0.4);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .drop-zone {
+      width: min(480px, 90vw);
+      border: 1px solid rgba(201,168,76,0.3);
+      border-radius: 2px;
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      background: rgba(201,168,76,0.03);
+      position: relative;
+      overflow: hidden;
+    }
+    .drop-zone::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(201,168,76,0.06) 0%, transparent 50%);
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .drop-zone:hover::before, .drop-zone.dragover::before { opacity: 1; }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: rgba(201,168,76,0.7);
+      box-shadow: 0 0 40px rgba(201,168,76,0.12);
+    }
+
+    .drop-icon {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+      display: block;
+      opacity: 0.6;
+    }
+    .drop-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.2rem;
+      color: var(--gold-light);
+      margin-bottom: 0.5rem;
+    }
+    .drop-hint {
+      font-size: 0.65rem;
+      color: rgba(245,240,232,0.3);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    #file-input { display: none; }
+
+    .format-badges {
+      display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;
+    }
+    .badge {
+      font-size: 0.6rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: rgba(201,168,76,0.6);
+      border: 1px solid rgba(201,168,76,0.2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 1px;
+    }
+
+    /* ── 로딩 ── */
+    #loading {
+      position: fixed; inset: 0;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 1.5rem;
+      z-index: 200; background: rgba(26,20,16,0.92);
+    }
+    #loading.show { display: flex; }
+    .loading-text {
+      font-family: 'Cormorant Garamond', serif;
+      color: var(--gold-light); font-size: 1.4rem; letter-spacing: 0.1em;
+    }
+    .loading-bar {
+      width: 200px; height: 1px;
+      background: rgba(201,168,76,0.2); position: relative; overflow: hidden;
+    }
+    .loading-bar::after {
+      content: '';
+      position: absolute; left: -100%; top: 0;
+      width: 100%; height: 100%;
+      background: var(--gold);
+      animation: loading-sweep 1.2s ease-in-out infinite;
+    }
+    @keyframes loading-sweep {
+      0% { left: -100%; }
+      100% { left: 100%; }
+    }
+
+    /* ── 뷰어 화면 ── */
+    #viewer-screen {
+      position: fixed; inset: 0;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 10;
+    }
+    #viewer-screen.show { display: flex; }
+
+    /* 상단 바 */
+    .top-bar {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem;
+      background: linear-gradient(to bottom, rgba(26,20,16,0.95), transparent);
+      z-index: 50;
+    }
+    .top-logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1rem; font-weight: 300; font-style: italic;
+      color: var(--gold); letter-spacing: 0.1em;
+    }
+    .page-indicator {
+      font-size: 0.62rem; letter-spacing: 0.2em;
+      text-transform: uppercase; color: rgba(245,240,232,0.4);
+    }
+    .btn-reset {
+      font-size: 0.62rem; letter-spacing: 0.15em;
+      text-transform: uppercase; color: rgba(201,168,76,0.5);
+      background: none; border: 1px solid rgba(201,168,76,0.2);
+      padding: 0.3rem 0.8rem; cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'DM Mono', monospace;
+    }
+    .btn-reset:hover { color: var(--gold); border-color: rgba(201,168,76,0.5); }
+
+    /* 책 컨테이너 */
+    #book-container {
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* StPageFlip 스타일 오버라이드 */
+    .stf__parent {
+      box-shadow:
+        0 30px 80px rgba(0,0,0,0.6),
+        0 10px 30px rgba(0,0,0,0.4),
+        inset 0 0 0 1px rgba(201,168,76,0.1);
+    }
+
+    /* 네비게이션 버튼 */
+    .nav-btn {
+      position: absolute;
+      top: 50%; transform: translateY(-50%);
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      border: 1px solid rgba(201,168,76,0.25);
+      background: rgba(26,20,16,0.8);
+      color: var(--gold-light);
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.25s ease;
+      backdrop-filter: blur(8px);
+      z-index: 30;
+    }
+    .nav-btn:hover {
+      border-color: rgba(201,168,76,0.7);
+      background: rgba(201,168,76,0.12);
+      box-shadow: 0 0 20px rgba(201,168,76,0.2);
+      transform: translateY(-50%) scale(1.08);
+    }
+    #btn-prev { left: -68px; }
+    #btn-next { right: -68px; }
+
+    /* 하단 바 */
+    .bottom-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: 60px;
+      display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+      background: linear-gradient(to top, rgba(26,20,16,0.95), transparent);
+      z-index: 50;
+    }
+    .thumb-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: rgba(201,168,76,0.25);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .thumb-dot.active {
+      background: var(--gold);
+      box-shadow: 0 0 8px rgba(201,168,76,0.5);
+    }
+    .thumb-dot:hover { background: rgba(201,168,76,0.6); transform: scale(1.4); }
+
+    /* 키보드 힌트 */
+    .keyboard-hint {
+      position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+      font-size: 0.58rem; color: rgba(245,240,232,0.2);
+      letter-spacing: 0.15em; text-transform: uppercase;
+      pointer-events: none;
+      opacity: 1; transition: opacity 1s ease;
+    }
+    .keyboard-hint.fade { opacity: 0; }
+
+    /* 페이지 내부 (캔버스를 감싸는 래퍼) */
+    .page-wrapper {
+      width: 100%; height: 100%;
+      background: var(--paper);
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .page-wrapper canvas, .page-wrapper img {
+      max-width: 100%; max-height: 100%;
+      object-fit: contain; display: block;
+    }
+
+    /* 반응형 */
+    @media (max-width: 768px) {
+      #btn-prev { left: 4px; }
+      #btn-next { right: 4px; }
+      .nav-btn { width: 36px; height: 36px; font-size: 0.9rem; opacity: 0.85; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- 업로드 화면 -->
+<div id="upload-screen">
+  <div>
+    <div class="upload-title"><em>Flip</em>book<br>Viewer</div>
+  </div>
+  <div class="upload-subtitle">이미지 또는 PDF를 넣어 e북으로 감상하세요</div>
+
+  <div class="drop-zone" id="drop-zone">
+    <input type="file" id="file-input" multiple accept="image/*,.pdf" />
+    <span class="drop-icon">📖</span>
+    <div class="drop-text">파일을 드래그하거나 클릭하여 업로드</div>
+    <div class="drop-hint" style="margin-top:0.4rem">이미지 여러 장 또는 PDF 한 장</div>
+  </div>
+
+  <div class="format-badges">
+    <span class="badge">JPG</span>
+    <span class="badge">PNG</span>
+    <span class="badge">WEBP</span>
+    <span class="badge">GIF</span>
+    <span class="badge">PDF</span>
+  </div>
+</div>
+
+<!-- 로딩 -->
+<div id="loading">
+  <div class="loading-text">페이지를 준비하는 중…</div>
+  <div class="loading-bar"></div>
+</div>
+
+<!-- 뷰어 -->
+<div id="viewer-screen">
+  <div class="top-bar">
+    <div class="top-logo">Flipbook</div>
+    <div class="page-indicator" id="page-indicator">— / —</div>
+    <button class="btn-reset" id="btn-reset">← 다시 열기</button>
+  </div>
+
+  <div id="book-container">
+    <button class="nav-btn" id="btn-prev">‹</button>
+    <div id="flipbook"></div>
+    <button class="nav-btn" id="btn-next">›</button>
+  </div>
+
+  <div class="bottom-bar">
+    <div id="dots-container" style="display:flex;gap:6px;align-items:center;"></div>
+  </div>
+
+  <div class="keyboard-hint" id="kb-hint">← → 키보드로도 넘길 수 있어요</div>
+</div>
+
+<!-- StPageFlip CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script>
+  // PDF.js workerSrc
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
+<script>
+(async () => {
+  // ── StPageFlip 동적 로드 ──
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/StPageFlip/2.0.7/flip.min.js';
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+
+  const $ = id => document.getElementById(id);
+  const uploadScreen = $('upload-screen');
+  const viewerScreen = $('viewer-screen');
+  const loadingEl   = $('loading');
+  const flipbookEl  = $('flipbook');
+  const fileInput   = $('file-input');
+  const dropZone    = $('drop-zone');
+  const pageIndicator = $('page-indicator');
+  const dotsContainer = $('dots-container');
+  const kbHint = $('kb-hint');
+
+  let pageFlip = null;
+  let totalPages = 0;
+
+  // ── 드래그앤드롭 ──
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', e => handleFiles(e.target.files));
+  $('btn-reset').addEventListener('click', reset);
+
+  function reset() {
+    if (pageFlip) { try { pageFlip.destroy(); } catch(e){} pageFlip = null; }
+    flipbookEl.innerHTML = '';
+    dotsContainer.innerHTML = '';
+    viewerScreen.style.display = 'none';
+    viewerScreen.classList.remove('show');
+    uploadScreen.classList.remove('hidden');
+    fileInput.value = '';
+  }
+
+  async function handleFiles(files) {
+    if (!files || files.length === 0) return;
+    showLoading(true);
+
+    const pages = []; // { dataUrl }
+
+    // 이미지와 PDF 분리
+    const imageFiles = [];
+    const pdfFiles = [];
+    for (const f of files) {
+      if (f.type === 'application/pdf') pdfFiles.push(f);
+      else if (f.type.startsWith('image/')) imageFiles.push(f);
+    }
+
+    // 이미지 정렬 (파일명 순)
+    imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    // 이미지 → dataURL
+    for (const f of imageFiles) {
+      const url = await fileToDataURL(f);
+      pages.push(url);
+    }
+
+    // PDF → 각 페이지 캔버스 → dataURL
+    for (const f of pdfFiles) {
+      const pdfPages = await pdfToDataURLs(f);
+      pages.push(...pdfPages);
+    }
+
+    if (pages.length === 0) { showLoading(false); alert('지원하지 않는 파일입니다.'); return; }
+
+    buildFlipbook(pages);
+  }
+
+  function fileToDataURL(file) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = e => res(e.target.result);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function pdfToDataURLs(file) {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const urls = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 1.8 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      urls.push(canvas.toDataURL('image/jpeg', 0.92));
+    }
+    return urls;
+  }
+
+  function buildFlipbook(pages) {
+    flipbookEl.innerHTML = '';
+    dotsContainer.innerHTML = '';
+    totalPages = pages.length;
+
+    // 화면 크기에 맞는 책 크기 계산
+    const maxW = Math.min(window.innerWidth * 0.88, 900);
+    const maxH = window.innerHeight * 0.78;
+    let bookW = Math.floor(maxW / 2); // 펼쳤을 때 한 면 너비
+    let bookH = Math.min(Math.floor(bookW * 1.41), maxH); // A4 비율
+    bookW = Math.floor(bookH / 1.41);
+
+    // 페이지 DOM 생성
+    pages.forEach((src, idx) => {
+      const div = document.createElement('div');
+      div.className = 'page-wrapper';
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = `Page ${idx + 1}`;
+      img.draggable = false;
+      div.appendChild(img);
+      flipbookEl.appendChild(div);
+    });
+
+    // 점 네비게이션
+    const dotCount = Math.min(totalPages, 24);
+    for (let i = 0; i < dotCount; i++) {
+      const dot = document.createElement('div');
+      dot.className = 'thumb-dot' + (i === 0 ? ' active' : '');
+      dot.addEventListener('click', () => {
+        if (pageFlip) pageFlip.flip(i);
+      });
+      dotsContainer.appendChild(dot);
+    }
+
+    // 뷰어 전환
+    uploadScreen.classList.add('hidden');
+    viewerScreen.style.display = 'flex';
+    viewerScreen.classList.add('show');
+
+    setTimeout(() => {
+      // StPageFlip 초기화
+      pageFlip = new St.PageFlip(flipbookEl, {
+        width: bookW,
+        height: bookH,
+        size: 'fixed',
+        minWidth: 100,
+        maxWidth: 1000,
+        minHeight: 100,
+        maxHeight: 1400,
+        drawShadow: true,
+        flippingTime: 700,
+        usePortrait: true,
+        startZIndex: 0,
+        autoSize: false,
+        maxShadowOpacity: 0.5,
+        showCover: false,
+        mobileScrollSupport: false,
+        swipeDistance: 30,
+        clickEventForward: true,
+        useMouseEvents: true,
+      });
+
+      pageFlip.loadFromHTML(flipbookEl.querySelectorAll('.page-wrapper'));
+
+      pageFlip.on('flip', e => updateUI(e.data));
+      pageFlip.on('changeOrientation', () => {});
+
+      updateUI(0);
+      showLoading(false);
+
+      // 키보드 힌트 페이드아웃
+      setTimeout(() => kbHint.classList.add('fade'), 4000);
+    }, 100);
+  }
+
+  function updateUI(pageIdx) {
+    pageIndicator.textContent = `${pageIdx + 1} / ${totalPages}`;
+    const dots = dotsContainer.querySelectorAll('.thumb-dot');
+    dots.forEach((d, i) => d.classList.toggle('active', i === Math.min(pageIdx, dots.length - 1)));
+  }
+
+  $('btn-prev').addEventListener('click', () => { if (pageFlip) pageFlip.flipPrev(); });
+  $('btn-next').addEventListener('click', () => { if (pageFlip) pageFlip.flipNext(); });
+
+  document.addEventListener('keydown', e => {
+    if (!pageFlip) return;
+    if (e.key === 'ArrowLeft')  pageFlip.flipPrev();
+    if (e.key === 'ArrowRight') pageFlip.flipNext();
+  });
+
+  function showLoading(show) {
+    loadingEl.classList.toggle('show', show);
+  }
+})();
+</script>
+</body>
+</html>
